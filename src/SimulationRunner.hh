@@ -579,6 +579,10 @@ namespace gz
       private: bool createEntities{false};
       private: bool entitiesCreated{false};
 
+#ifdef _WIN32
+      private: HANDLE winPrecisionTimer;
+#endif
+
       friend class LevelManager;
     };
     }
