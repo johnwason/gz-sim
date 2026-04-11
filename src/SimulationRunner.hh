@@ -580,7 +580,7 @@ namespace gz
       private: bool entitiesCreated{false};
 
 #ifdef _WIN32
-      private: HANDLE winPrecisionTimer;
+      private: HANDLE winPrecisionTimer{NULL};
 #endif
 
       friend class LevelManager;
