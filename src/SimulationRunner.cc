@@ -66,6 +66,16 @@
 #include "LevelManager.hh"
 #include "SdfGenerator.hh"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 using namespace gz;
 using namespace sim;
 
@@ -102,6 +112,31 @@ struct MaybeGilScopedRelease
 #endif
 }
 
+#ifdef _WIN32
+namespace gz
+{
+namespace sim
+{
+inline namespace GZ_SIM_VERSION_NAMESPACE {
+class SimulationRunnerWinHandleStorage
+{
+  private: HANDLE handle_storage{NULL};
+
+  public: HANDLE handle() { return handle_storage; }
+
+  public: SimulationRunnerWinHandleStorage(HANDLE h) : handle_storage(h) {}
+
+  public: ~SimulationRunnerWinHandleStorage() {
+    if (handle_storage != NULL)
+    {
+      CloseHandle(handle_storage);
+    }
+  }
+};
+}
+}
+}
+#endif
 
 //////////////////////////////////////////////////
 SimulationRunner::SimulationRunner(const sdf::World &_world,
@@ -182,7 +217,11 @@ SimulationRunner::SimulationRunner(const sdf::World &_world,
   this->currentInfo.simTime = this->simTimeEpoch;
 
 #ifdef _WIN32
-  winPrecisionTimer = CreateWaitableTimerExA(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+  HANDLE winPrecisionTimer_handle = CreateWaitableTimerExA(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+  if (winPrecisionTimer_handle != NULL)
+  {
+    winPrecisionTimer = std::make_unique<SimulationRunnerWinHandleStorage>(winPrecisionTimer_handle);
+  }
 #endif
 
   // World control
@@ -326,13 +365,6 @@ SimulationRunner::SimulationRunner(const sdf::World &_world,
 SimulationRunner::~SimulationRunner()
 {
   this->StopWorkerThreads();
-#ifdef _WIN32
-  if (winPrecisionTimer != NULL)
-  {
-    CloseHandle(winPrecisionTimer);
-    winPrecisionTimer = NULL;
-  }
-#endif
 }
 
 /////////////////////////////////////////////////
@@ -928,19 +960,19 @@ bool SimulationRunner::Run(const uint64_t _iterations)
 #ifndef _WIN32
           std::this_thread::sleep_until(sleepTarget);
 #else
-          if (winPrecisionTimer != NULL)
+          if (winPrecisionTimer)
           {
             auto sleepTargetDuration = std::chrono::duration_cast<std::chrono::microseconds>(sleepTarget - now);
             LARGE_INTEGER due_time;
             memset(&due_time, 0, sizeof(due_time));
             due_time.QuadPart = -sleepTargetDuration.count() * 10;
-            if (SetWaitableTimer(winPrecisionTimer, &due_time, 0, NULL, NULL, FALSE) != TRUE)
+            if (SetWaitableTimer(winPrecisionTimer->handle(), &due_time, 0, NULL, NULL, FALSE) != TRUE)
             {
               gzerr << "Could not SetWaitableTimer" << std::endl;
             }
             else
             {
-              WaitForSingleObject(winPrecisionTimer, INFINITE);
+              WaitForSingleObject(winPrecisionTimer->handle(), INFINITE);
             }
           }
           else
